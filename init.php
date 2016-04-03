@@ -8,5 +8,6 @@ set_time_limit(0);
 ob_implicit_flush();
 
 include 'HttpServer.php';
+include 'HttpClient.php';
 
 $server = new HttpServer();

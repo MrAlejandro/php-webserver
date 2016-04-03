@@ -3,6 +3,7 @@
 class HttpServer
 {
     protected $_socket = null;
+    protected $_processes = array();
 
     const HOST_NAME = '127.0.0.1';
     const HOST_PORT = '8080';
@@ -27,6 +28,8 @@ class HttpServer
                 throw new Exception();
             }
 
+            /* socket_set_nonblock($this->_socket); */
+
             $this->_startWaiting();
 
         } catch (Exception $e) {
@@ -38,89 +41,43 @@ class HttpServer
     {
         try {
             while (true) {
-                echo 'still running' . PHP_EOL;
-
                 $response = array();
 
-                echo 'before fail' . PHP_EOL;
-
+                echo 'waiting' . PHP_EOL;
                 if (($socket = socket_accept($this->_socket)) === false) {
                     break;
                 }
 
-                echo 'start_processing' . PHP_EOL;
+                $client = new HttpClient($socket);
+                $this->_processes[] = $client->startRoutines();
 
-                $http_request = array();
-                $new_line_qty = 0;
-                $i = 1;
+                /* $this->_killZombieProcesses(); */
 
-                while (true) {
-
-                    if (($buf = socket_read($socket, 2048, PHP_NORMAL_READ)) === false) {
-                        break;
-                    }
-
-                    $buf = str_replace(array("\n", "\r"), '', $buf);
-
-                    if ($buf) {
-                        preg_match('/(.+)?:\s(.+)/', trim($buf), $matches);
-
-                        if (!empty($matches[1]) && !empty($matches[2])) {
-                            $http_request['headers'][$matches[1]] = $matches[2];
-                        } else {
-                            $http_request['headers'][] = $buf;
-                        }
-
-                        $new_line_qty = 0;
-                    } else {
-                        $new_line_qty++;
-                    }
-
-                    // headers ended
-                    if ($new_line_qty > 2) {
-                        break;
-                    }
-
-                    $i++;
-                }
-
-                print_r($http_request);
-                list($method, $path, $protocol) = $this->_parseStatusLine($http_request['headers'][0]);
-
-                if ($path == 'favicon.ico') {
-                    $response[] = 'HTTP/1.1 200 OK';
-                    $response[] = 'Accept-Ranges: bytes';
-                    $response[] = 'Content-Type: image/x-icon';
-                    $response['content_length'] = '';
-                    $response[] = '';
-                    $response['body'] = file_get_contents('favicon.ico');
-                    $response['content_length'] = 'Content-Length: ' . strlen($response['body']);
-                } else {
-                    $response[] = 'HTTP/1.1 200 OK';
-                    $response[] = 'Connection: close';
-                    $response[] = 'Content-Type: text/html';
-                    $response['content_length'] = '';
-                    $response[] = '';
-                    $response['body'] = 'My application body';
-
-                    $response['content_length'] = 'Content-Length: ' . strlen($response['body']);
-                }
-
-                $response = implode(self::CLRF, $response);
-
-                socket_write($socket, $response, strlen($response));
-
-                echo 'closing socket' . PHP_EOL;
-
-                socket_close($socket);
+                echo 'finished' . PHP_EOL;
             }
         } catch (Exceprion $e) {
             $this->_handleError($e);
         }
 
-        socket_close($this->_socket);
     }
 
+    protected function _killZombieProcesses()
+    {
+        foreach ($this->_processes as $key => $process) {
+            echo $process . PHP_EOL;
+            echo 'ps ' . $process . ' | grep "Z+"';
+            $output = shell_exec('ps ' . $process . ' | grep "Z+"');
+            echo $output . PHP_EOL;
+            var_dump(strpos($output, (string) $process) !== false);
+            if (strpos($output, (string) $process) !== false) {
+                echo 'kill ' . $process . PHP_EOL;
+                exec('kill ' . $process);
+                unset($this->_processes[$key]);
+            }
+        }
+
+        return $this;
+    }
 
     protected function _handleError($e)
     {
@@ -133,11 +90,6 @@ class HttpServer
         echo 'Failed starting server: ' . $message . PHP_EOL;
     }
 
-    protected function _parseStatusLine($statusLine)
-    {
-        preg_match('/(\w+)\s(.+)?\s(.+)/', $statusLine, $matches);
-        return array($matches[1], $matches[2], $matches[3]);
-    }
 
     public function __destruct()
     {
